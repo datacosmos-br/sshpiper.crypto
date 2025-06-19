@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 )
 
 type Upstream struct {
@@ -19,9 +18,17 @@ type Upstream struct {
 	ClientConfig
 }
 
+// ChallengeContext represents the context for an authentication challenge.
+// It provides methods to retrieve metadata and the username being challenged.
 type ChallengeContext interface {
+
+	// Meta returns the metadata associated with the challenge.
+	// This can be used to store and retrieve additional information
+	// related to the authentication process.
+	//
 	Meta() interface{}
 
+	// ChallengedUsername returns the username challenged.
 	ChallengedUsername() string
 }
 
@@ -46,28 +53,28 @@ type PiperConfig struct {
 	hostKeys []Signer
 
 	// CreateChallengeContext, if non-nil, that creates a challenge context for the connection metadata.
-	CreateChallengeContext func(conn PluginConnMetadata) (ChallengeContext, error)
+	CreateChallengeContext func(conn ConnMetadata) (ChallengeContext, error)
 
 	// NextAuthMethods, if non-nil, that returns the next authentication methods to be used.
-	NextAuthMethods func(conn PluginConnMetadata, challengeCtx ChallengeContext) ([]string, error)
+	NextAuthMethods func(conn ConnMetadata, challengeCtx ChallengeContext) ([]string, error)
 
 	// NoClientAuthCallback, if non-nil, that is called when the downstream requests a none auth.
-	NoClientAuthCallback func(conn PluginConnMetadata, challengeCtx ChallengeContext) (*Upstream, error)
+	NoClientAuthCallback func(conn ConnMetadata, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// PasswordCallback, if non-nil, that is called when the downstream requests a password auth.
 	// It returns the upstream connection and an error.
-	PasswordCallback func(conn PluginConnMetadata, password []byte, challengeCtx ChallengeContext) (*Upstream, error)
+	PasswordCallback func(conn ConnMetadata, password []byte, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// PublicKeyCallback, if non-nil, that is called when the downstream requests a publickey auth.
 	// It returns the upstream connection and an error.
-	PublicKeyCallback func(conn PluginConnMetadata, key PublicKey, challengeCtx ChallengeContext) (*Upstream, error)
+	PublicKeyCallback func(conn ConnMetadata, key PublicKey, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// KeyboardInteractiveCallback, if non-nil, that is called when the downstream requests a keyboard interactive auth.
 	// It returns the upstream connection and an error.
-	KeyboardInteractiveCallback func(conn PluginConnMetadata, client KeyboardInteractiveChallenge, challengeCtx ChallengeContext) (*Upstream, error)
+	KeyboardInteractiveCallback func(conn ConnMetadata, client KeyboardInteractiveChallenge, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// UpstreamAuthFailureCallback, if non-nil, that is called when the upstream authentication fails.
-	UpstreamAuthFailureCallback func(conn PluginConnMetadata, method string, err error, challengeCtx ChallengeContext)
+	UpstreamAuthFailureCallback func(conn ConnMetadata, method string, err error, challengeCtx ChallengeContext)
 
 	// ServerVersion is the version identification string to announce in the public handshake.
 	// If empty, a reasonable default is used.
@@ -76,7 +83,13 @@ type PiperConfig struct {
 
 	// BannerCallback, if non-nil, that is called after key exchange completed but before authentication.
 	// It returns the banner string to be sent to the client.
-	BannerCallback func(conn PluginConnMetadata, challengeCtx ChallengeContext) string
+	BannerCallback func(conn ConnMetadata, challengeCtx ChallengeContext) string
+
+	// PreAuthConnCallback, if non-nil, is called upon receiving a new connection
+	// before any authentication has started. The provided ServerPreAuthConn
+	// can be used at any time before authentication is complete, including
+	// after this callback has returned.
+	PreAuthConnCallback func(ServerPreAuthConn)
 }
 
 // AddHostKey adds a private key as a SSHPiper host key. If an existing host
@@ -91,15 +104,6 @@ func (s *PiperConfig) AddHostKey(key Signer) {
 	}
 
 	s.hostKeys = append(s.hostKeys, key)
-}
-
-// ClearHostKeys removes all host keys from the PiperConfig.
-func (s *PiperConfig) ClearHostKeys() {
-	s.hostKeys = nil
-}
-
-func (s *PiperConfig) GetHostKeys() []Signer {
-	return s.hostKeys
 }
 
 type upstream struct{ *connection }
@@ -127,7 +131,80 @@ func (p *PiperConn) Wait() error {
 	return p.WaitWithHook(nil, nil)
 }
 
-func (p *PiperConn) WaitWithHook(uphook, downhook func(msg []byte) ([]byte, error)) error {
+// PipePacketHookMethod defines how the hook should handle the packet.
+type PipePacketHookMethod int
+
+const (
+	// PipePacketHookTransform means the hook return transformed packet
+	// to the original packet.
+	// The original packet will be ignored and not sent to the other side.
+	// The transformed packet will be sent to the other side.
+	PipePacketHookTransform PipePacketHookMethod = iota
+
+	// PipePacketHookReply means the hook return a reply packet
+	// to the original packet.
+	// The original packet will be ignored and not sent to the other side.
+	// The reply packet will be sent to the other side.
+	PipePacketHookReply
+)
+
+// PipePacketHook is a hook function that is called when a packet is received
+// from the upstream or downstream connection. It allows you to modify the
+// packet before it is sent to the other side.
+// The hook function should return the method to be used and the modified
+// packet. The method can be one of the following:
+//   - PipePacketHookTransform: the packet is transformed and sent to the
+//     other side.
+//   - PipePacketHookReply: the packet is a reply to the original packet
+//     and should be sent to the other side.
+//
+// If the hook function returns an error, the piped connection will be closed
+// and the error will be returned to the caller.
+// If the hook function returns nil, the packet will be dropped
+type PipePacketHook func(msg []byte) (PipePacketHookMethod, []byte, error)
+
+// PingPacketReply is a PipePacketHook that replies to ping@openssh packets
+// with a pong packet.
+// This is useful when upstream does not support ping@openssh
+// sshpiper will reply instead of crashing upstream
+func PingPacketReply(packet []byte) (PipePacketHookMethod, []byte, error) {
+	if packet[0] == msgPing {
+		var msg pingMsg
+		if err := Unmarshal(packet, &msg); err != nil {
+			return PipePacketHookTransform, nil, fmt.Errorf("failed to unmarshal ping@openssh.com message: %w", err)
+		}
+
+		return PipePacketHookReply, Marshal(pongMsg(msg)), nil
+	}
+	return PipePacketHookTransform, packet, nil
+}
+
+// InspectPacketHook is a PipePacketHook that inspects the packet and
+// inspect func should not modify the packet.
+func InspectPacketHook(inspect func(msg []byte) error) PipePacketHook {
+	if inspect == nil {
+		return nil
+	}
+
+	return func(msg []byte) (PipePacketHookMethod, []byte, error) {
+		if err := inspect(msg); err != nil {
+			return PipePacketHookTransform, nil, err
+		}
+
+		return PipePacketHookTransform, msg, nil
+	}
+}
+
+// WaitWithHook blocks until the piped connection has shut down, and returns the
+// error causing the shutdown. It also allows you to specify hooks for
+// upstream and downstream data. The hooks are called with the data read from
+// the connection, and should return the data to be written to the connection.
+//
+// uphook is called with the data read from the upstream connection before sending to
+// downstream
+// downhook is called with the data read from the downstream connection before sending to
+// upstream
+func (p *PiperConn) WaitWithHook(uphook, downhook PipePacketHook) error {
 	c := make(chan error, 2)
 
 	if downhook != nil {
@@ -162,13 +239,13 @@ func (p *PiperConn) Close() {
 	p.downstream.transport.Close()
 }
 
-// UpstreamConnMeta returns the PluginConnMetadata of the piper and upstream
-func (p *PiperConn) UpstreamConnMeta() PluginConnMetadata {
+// UpstreamConnMeta returns the ConnMetadata of the piper and upstream
+func (p *PiperConn) UpstreamConnMeta() ConnMetadata {
 	return p.upstream
 }
 
-// DownstreamConnMeta returns the PluginConnMetadata of the piper and downstream
-func (p *PiperConn) DownstreamConnMeta() PluginConnMetadata {
+// DownstreamConnMeta returns the ConnMetadata of the piper and downstream
+func (p *PiperConn) DownstreamConnMeta() ConnMetadata {
 	return p.downstream
 }
 
@@ -192,7 +269,7 @@ func (p *PiperConn) mapToUpstreamViaDownstreamAuth() error {
 	return nil
 }
 
-func (p *PiperConn) authUpstream(downstream PluginConnMetadata, method string, upstream *Upstream) error {
+func (p *PiperConn) authUpstream(downstream ConnMetadata, method string, upstream *Upstream) error {
 	if upstream == nil {
 		return p.updateAuthMethods(fmt.Errorf("empty upstream"))
 	}
@@ -236,7 +313,7 @@ func (p *PiperConn) authUpstream(downstream PluginConnMetadata, method string, u
 	return nil
 }
 
-func (p *PiperConn) noClientAuthCallback(conn PluginConnMetadata) (*Permissions, error) {
+func (p *PiperConn) noClientAuthCallback(conn ConnMetadata) (*Permissions, error) {
 	u, err := p.config.NoClientAuthCallback(conn, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -246,7 +323,7 @@ func (p *PiperConn) noClientAuthCallback(conn PluginConnMetadata) (*Permissions,
 	return nil, p.authUpstream(conn, "none", u)
 }
 
-func (p *PiperConn) passwordCallback(conn PluginConnMetadata, password []byte) (*Permissions, error) {
+func (p *PiperConn) passwordCallback(conn ConnMetadata, password []byte) (*Permissions, error) {
 	u, err := p.config.PasswordCallback(conn, password, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -256,7 +333,7 @@ func (p *PiperConn) passwordCallback(conn PluginConnMetadata, password []byte) (
 	return nil, p.authUpstream(conn, "password", u)
 }
 
-func (p *PiperConn) publicKeyCallback(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
+func (p *PiperConn) publicKeyCallback(conn ConnMetadata, key PublicKey) (*Permissions, error) {
 	u, err := p.config.PublicKeyCallback(conn, key, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -266,7 +343,7 @@ func (p *PiperConn) publicKeyCallback(conn PluginConnMetadata, key PublicKey) (*
 	return nil, p.authUpstream(conn, "publickey", u)
 }
 
-func (p *PiperConn) keyboardInteractiveCallback(conn PluginConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error) {
+func (p *PiperConn) keyboardInteractiveCallback(conn ConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error) {
 	u, err := p.config.KeyboardInteractiveCallback(conn, client, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -276,7 +353,7 @@ func (p *PiperConn) keyboardInteractiveCallback(conn PluginConnMetadata, client 
 	return nil, p.authUpstream(conn, "keyboard-interactive", u)
 }
 
-func (p *PiperConn) bannerCallback(conn PluginConnMetadata) string {
+func (p *PiperConn) bannerCallback(conn ConnMetadata) string {
 	return p.config.BannerCallback(conn, p.challengeCtx)
 }
 
@@ -339,15 +416,6 @@ func (p *PiperConn) updateAuthMethods(emptyerr error) error {
 // It handshake with downstream ssh client and upstream ssh server provicde by FindUpstream.
 // If either handshake is unsuccessful, the whole piped connection will be closed.
 func NewSSHPiperConn(conn net.Conn, config *PiperConfig) (*PiperConn, error) {
-	if len(config.hostKeys) == 0 {
-		fmt.Fprintf(os.Stderr, "DEBUG: No host keys present in PiperConfig!\n")
-	} else {
-		fmt.Fprintf(os.Stderr, "DEBUG: Host keys present: %d\n", len(config.hostKeys))
-		for i, k := range config.hostKeys {
-			fmt.Fprintf(os.Stderr, "DEBUG: Host key %d type: %s\n", i, k.PublicKey().Type())
-		}
-	}
-
 	d, err := newDownstream(conn, &ServerConfig{
 		Config:                  config.Config,
 		hostKeys:                config.hostKeys,
@@ -384,6 +452,10 @@ func NewSSHPiperConn(conn net.Conn, config *PiperConfig) (*PiperConn, error) {
 		p.authOnlyConfig.BannerCallback = p.bannerCallback
 	}
 
+	if config.PreAuthConnCallback != nil {
+		p.authOnlyConfig.PreAuthConnCallback = config.PreAuthConnCallback
+	}
+
 	if err := p.mapToUpstreamViaDownstreamAuth(); err != nil {
 		return nil, err
 	}
@@ -405,29 +477,41 @@ func piping(dst, src packetConn) error {
 	}
 }
 
-func pipingWithHook(dst, src packetConn, hook func(msg []byte) ([]byte, error)) error {
+func pipingWithHook(dst, src packetConn, hook PipePacketHook) error {
 	for {
-		p, err := src.readPacket()
+		original, err := src.readPacket()
 		if err != nil {
 			return err
 		}
 
-		p, err = hook(p)
+		method, hooked, err := hook(original)
 		if err != nil {
 			return err
 		}
 
-		if p == nil {
+		if hooked == nil {
 			continue
 		}
 
-		err = dst.writePacket(p)
-		if err != nil {
-			return err
+		switch method {
+		case PipePacketHookTransform:
+			err = dst.writePacket(hooked)
+			if err != nil {
+				return err
+			}
+		case PipePacketHookReply:
+			if err := src.writePacket(hooked); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unknown hook method: %d", method)
 		}
 	}
 }
 
+// NoneAuth returns an AuthMethod that represents "none" authentication.
+// This method is typically used to indicate that no authentication is required
+// or to test if the server allows unauthenticated access.
 func NoneAuth() AuthMethod {
 	return new(noneAuth)
 }
