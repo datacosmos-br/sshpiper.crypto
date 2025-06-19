@@ -822,7 +822,7 @@ func TestNoSHA2Support(t *testing.T) {
 	defer c2.Close()
 
 	serverConf := &ServerConfig{
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			return &Permissions{}, nil
 		},
 	}
@@ -862,7 +862,7 @@ func TestMultiAlgoSignerHandshake(t *testing.T) {
 	defer c2.Close()
 
 	serverConf := &ServerConfig{
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			return &Permissions{}, nil
 		},
 	}
@@ -899,7 +899,7 @@ func TestMultiAlgoSignerNoCommonHostKeyAlgo(t *testing.T) {
 
 	// ssh-rsa is disabled server side
 	serverConf := &ServerConfig{
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			return &Permissions{}, nil
 		},
 	}

@@ -169,10 +169,10 @@ func TestBannerCallback(t *testing.T) {
 	defer c2.Close()
 
 	serverConf := &ServerConfig{
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			return &Permissions{}, nil
 		},
-		BannerCallback: func(conn ConnMetadata) string {
+		BannerCallback: func(conn PluginConnMetadata) string {
 			return "Hello World"
 		},
 	}
@@ -218,11 +218,11 @@ func TestNewClientConn(t *testing.T) {
 		simulateHostKeyMismatch HostKeyCallback
 	}{
 		{
-			name: "good user field for ConnMetadata",
+			name: "good user field for PluginConnMetadata",
 			user: "testuser",
 		},
 		{
-			name: "empty user field for ConnMetadata",
+			name: "empty user field for PluginConnMetadata",
 			user: "",
 		},
 		{
@@ -242,7 +242,7 @@ func TestNewClientConn(t *testing.T) {
 			defer c2.Close()
 
 			serverConf := &ServerConfig{
-				PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+				PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 					return &Permissions{}, nil
 				},
 			}
@@ -339,7 +339,7 @@ func TestUnsupportedAlgorithm(t *testing.T) {
 
 			serverConf := &ServerConfig{
 				Config: tt.config,
-				PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+				PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 					return &Permissions{}, nil
 				},
 			}

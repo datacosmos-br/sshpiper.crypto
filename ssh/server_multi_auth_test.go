@@ -23,7 +23,7 @@ func doClientServerAuth(t *testing.T, serverConfig *ServerConfig, clientConfig *
 	var serverAuthErrors []error
 
 	serverConfig.AddHostKey(testSigners["rsa"])
-	serverConfig.AuthLogCallback = func(conn ConnMetadata, method string, err error) {
+	serverConfig.AuthLogCallback = func(conn PluginConnMetadata, method string, err error) {
 		serverAuthErrors = append(serverAuthErrors, err)
 	}
 	go newServer(c1, serverConfig)
@@ -43,7 +43,7 @@ func TestMultiStepAuth(t *testing.T) {
 	errWrongSequence := errors.New("wrong sequence")
 
 	serverConfig := &ServerConfig{
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			if conn.User() == usernameSecondFactor {
 				return nil, errWrongSequence
 			}
@@ -52,12 +52,12 @@ func TestMultiStepAuth(t *testing.T) {
 			}
 			return nil, errPwdAuthFailed
 		},
-		PublicKeyCallback: func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+		PublicKeyCallback: func(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 			if bytes.Equal(key.Marshal(), testPublicKeys["rsa"].Marshal()) {
 				if conn.User() == usernameSecondFactor {
 					return nil, &PartialSuccessError{
 						Next: ServerAuthCallbacks{
-							PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+							PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 								if string(password) == clientPassword {
 									return nil, nil
 								}
@@ -289,12 +289,12 @@ func TestDynamicAuthCallbacks(t *testing.T) {
 
 	serverConfig := &ServerConfig{
 		NoClientAuth: true,
-		NoClientAuthCallback: func(conn ConnMetadata) (*Permissions, error) {
+		NoClientAuthCallback: func(conn PluginConnMetadata) (*Permissions, error) {
 			switch conn.User() {
 			case user1:
 				return nil, &PartialSuccessError{
 					Next: ServerAuthCallbacks{
-						PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+						PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 							if conn.User() == user1 && string(password) == clientPassword {
 								return nil, nil
 							}
@@ -305,7 +305,7 @@ func TestDynamicAuthCallbacks(t *testing.T) {
 			case user2:
 				return nil, &PartialSuccessError{
 					Next: ServerAuthCallbacks{
-						PublicKeyCallback: func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+						PublicKeyCallback: func(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 							if bytes.Equal(key.Marshal(), testPublicKeys["rsa"].Marshal()) {
 								if conn.User() == user2 {
 									return nil, nil

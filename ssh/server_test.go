@@ -35,7 +35,7 @@ func TestClientAuthRestrictedPublicKeyAlgos(t *testing.T) {
 		defer c2.Close()
 		serverConf := &ServerConfig{
 			PublicKeyAuthAlgorithms: []string{KeyAlgoRSASHA256, KeyAlgoRSASHA512},
-			PublicKeyCallback: func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+			PublicKeyCallback: func(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 				return nil, nil
 			},
 		}
@@ -71,7 +71,7 @@ func TestMaxAuthTriesNoneMethod(t *testing.T) {
 	username := "testuser"
 	serverConfig := &ServerConfig{
 		MaxAuthTries: 2,
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			if conn.User() == username && string(password) == clientPassword {
 				return nil, nil
 			}
@@ -88,7 +88,7 @@ func TestMaxAuthTriesNoneMethod(t *testing.T) {
 	var serverAuthErrors []error
 
 	serverConfig.AddHostKey(testSigners["rsa"])
-	serverConfig.AuthLogCallback = func(conn ConnMetadata, method string, err error) {
+	serverConfig.AuthLogCallback = func(conn PluginConnMetadata, method string, err error) {
 		serverAuthErrors = append(serverAuthErrors, err)
 	}
 	go newServer(c1, serverConfig)
@@ -164,7 +164,7 @@ func TestMaxAuthTriesFirstNoneAuthErrorIgnored(t *testing.T) {
 	username := "testuser"
 	serverConfig := &ServerConfig{
 		MaxAuthTries: 1,
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			if conn.User() == username && string(password) == clientPassword {
 				return nil, nil
 			}
@@ -230,27 +230,27 @@ func TestNewServerConnValidationErrors(t *testing.T) {
 
 func TestBannerError(t *testing.T) {
 	serverConfig := &ServerConfig{
-		BannerCallback: func(ConnMetadata) string {
+		BannerCallback: func(PluginConnMetadata) string {
 			return "banner from BannerCallback"
 		},
 		NoClientAuth: true,
-		NoClientAuthCallback: func(ConnMetadata) (*Permissions, error) {
+		NoClientAuthCallback: func(PluginConnMetadata) (*Permissions, error) {
 			err := &BannerError{
 				Err:     errors.New("error from NoClientAuthCallback"),
 				Message: "banner from NoClientAuthCallback",
 			}
 			return nil, fmt.Errorf("wrapped: %w", err)
 		},
-		PasswordCallback: func(conn ConnMetadata, password []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 			return &Permissions{}, nil
 		},
-		PublicKeyCallback: func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+		PublicKeyCallback: func(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 			return nil, &BannerError{
 				Err:     errors.New("error from PublicKeyCallback"),
 				Message: "banner from PublicKeyCallback",
 			}
 		},
-		KeyboardInteractiveCallback: func(conn ConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error) {
+		KeyboardInteractiveCallback: func(conn PluginConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error) {
 			return nil, &BannerError{
 				Err:     nil, // make sure that a nil inner error is allowed
 				Message: "banner from KeyboardInteractiveCallback",
@@ -310,7 +310,7 @@ func TestPublicKeyCallbackLastSeen(t *testing.T) {
 	defer c1.Close()
 	defer c2.Close()
 	serverConf := &ServerConfig{
-		PublicKeyCallback: func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+		PublicKeyCallback: func(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 			lastSeenKey = key
 			fmt.Printf("seen %#v\n", key)
 			if _, ok := key.(*dsaPublicKey); !ok {
@@ -379,7 +379,7 @@ func TestPreAuthConnAndBanners(t *testing.T) {
 			}()
 		},
 		NoClientAuth: true,
-		NoClientAuthCallback: func(ConnMetadata) (*Permissions, error) {
+		NoClientAuthCallback: func(PluginConnMetadata) (*Permissions, error) {
 			t.Logf("got NoClientAuthCallback")
 			return &Permissions{}, nil
 		},

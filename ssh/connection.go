@@ -20,8 +20,8 @@ func (e *OpenChannelError) Error() string {
 	return fmt.Sprintf("ssh: rejected: %s (%s)", e.Reason, e.Message)
 }
 
-// ConnMetadata holds metadata for the connection.
-type ConnMetadata interface {
+// PluginConnMetadata holds metadata for the connection.
+type PluginConnMetadata interface {
 	// User returns the user ID for this connection.
 	User() string
 
@@ -48,7 +48,7 @@ type ConnMetadata interface {
 // as ClientConn, which implements the traditional shell access for
 // clients.
 type Conn interface {
-	ConnMetadata
+	PluginConnMetadata
 
 	// SendRequest sends a global request, and returns the
 	// reply. If wantReply is true, it returns the response status

@@ -52,7 +52,7 @@ type GSSAPIWithMICConfig struct {
 	// GSSAPI just guarantees to the server who the user is, but not if they can log in, and with what permissions.
 	// This callback is called after the user identity is established with GSSAPI to decide if the user can login with
 	// which permissions. If the user is allowed to login, it should return a nil error.
-	AllowLogin func(conn ConnMetadata, srcName string) (*Permissions, error)
+	AllowLogin func(conn PluginConnMetadata, srcName string) (*Permissions, error)
 
 	// Server must be set. It's the implementation
 	// of the GSSAPIServer interface. See GSSAPIServer interface for details.
@@ -73,7 +73,7 @@ func (*connection) unexportedMethodForFutureProofing() {}
 type ServerPreAuthConn interface {
 	unexportedMethodForFutureProofing() // permits growing ServerPreAuthConn safely later, ala testing.TB
 
-	ConnMetadata
+	PluginConnMetadata
 
 	// SendAuthBanner sends a banner message to the client.
 	// It returns an error once the authentication phase has ended.
@@ -104,7 +104,7 @@ type ServerConfig struct {
 	// attempts to authenticate with auth method "none".
 	// NoClientAuth must also be set to true for this be used, or
 	// this func is unused.
-	NoClientAuthCallback func(ConnMetadata) (*Permissions, error)
+	NoClientAuthCallback func(PluginConnMetadata) (*Permissions, error)
 
 	// MaxAuthTries specifies the maximum number of authentication attempts
 	// permitted per connection. If set to a negative number, the number of
@@ -114,7 +114,7 @@ type ServerConfig struct {
 
 	// PasswordCallback, if non-nil, is called when a user
 	// attempts to authenticate using a password.
-	PasswordCallback func(conn ConnMetadata, password []byte) (*Permissions, error)
+	PasswordCallback func(conn PluginConnMetadata, password []byte) (*Permissions, error)
 
 	// PublicKeyCallback, if non-nil, is called when a client
 	// offers a public key for authentication. It must return a nil error
@@ -124,7 +124,7 @@ type ServerConfig struct {
 	// offered is in fact used to authenticate. To record any data
 	// depending on the public key, store it inside a
 	// Permissions.Extensions entry.
-	PublicKeyCallback func(conn ConnMetadata, key PublicKey) (*Permissions, error)
+	PublicKeyCallback func(conn PluginConnMetadata, key PublicKey) (*Permissions, error)
 
 	// KeyboardInteractiveCallback, if non-nil, is called when
 	// keyboard-interactive authentication is selected (RFC
@@ -133,11 +133,11 @@ type ServerConfig struct {
 	// Challenge rounds. To avoid information leaks, the client
 	// should be presented a challenge even if the user is
 	// unknown.
-	KeyboardInteractiveCallback func(conn ConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error)
+	KeyboardInteractiveCallback func(conn PluginConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error)
 
 	// AuthLogCallback, if non-nil, is called to log all authentication
 	// attempts.
-	AuthLogCallback func(conn ConnMetadata, method string, err error)
+	AuthLogCallback func(conn PluginConnMetadata, method string, err error)
 
 	// PreAuthConnCallback, if non-nil, is called upon receiving a new connection
 	// before any authentication has started. The provided ServerPreAuthConn
@@ -154,7 +154,7 @@ type ServerConfig struct {
 
 	// BannerCallback, if present, is called and the return string is sent to
 	// the client after key exchange completed but before authentication.
-	BannerCallback func(conn ConnMetadata) string
+	BannerCallback func(conn PluginConnMetadata) string
 
 	// GSSAPIWithMICConfig includes gssapi server and callback, which if both non-nil, is used
 	// when gssapi-with-mic authentication is selected (RFC 4462 section 3).
@@ -463,13 +463,13 @@ func (l ServerAuthError) Error() string {
 // ServerAuthCallbacks defines server-side authentication callbacks.
 type ServerAuthCallbacks struct {
 	// PasswordCallback behaves like [ServerConfig.PasswordCallback].
-	PasswordCallback func(conn ConnMetadata, password []byte) (*Permissions, error)
+	PasswordCallback func(conn PluginConnMetadata, password []byte) (*Permissions, error)
 
 	// PublicKeyCallback behaves like [ServerConfig.PublicKeyCallback].
-	PublicKeyCallback func(conn ConnMetadata, key PublicKey) (*Permissions, error)
+	PublicKeyCallback func(conn PluginConnMetadata, key PublicKey) (*Permissions, error)
 
 	// KeyboardInteractiveCallback behaves like [ServerConfig.KeyboardInteractiveCallback].
-	KeyboardInteractiveCallback func(conn ConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error)
+	KeyboardInteractiveCallback func(conn PluginConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error)
 
 	// GSSAPIWithMICConfig behaves like [ServerConfig.GSSAPIWithMICConfig].
 	GSSAPIWithMICConfig *GSSAPIWithMICConfig

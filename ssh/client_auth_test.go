@@ -58,7 +58,7 @@ func tryAuthBothSides(t *testing.T, config *ClientConfig, gssAPIWithMICConfig *G
 		IsUserAuthority: func(k PublicKey) bool {
 			return bytes.Equal(k.Marshal(), testPublicKeys["ecdsa"].Marshal())
 		},
-		UserKeyFallback: func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+		UserKeyFallback: func(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 			if conn.User() == "testuser" && bytes.Equal(key.Marshal(), testPublicKeys["rsa"].Marshal()) {
 				return nil, nil
 			}
@@ -70,14 +70,14 @@ func tryAuthBothSides(t *testing.T, config *ClientConfig, gssAPIWithMICConfig *G
 		},
 	}
 	serverConfig := &ServerConfig{
-		PasswordCallback: func(conn ConnMetadata, pass []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, pass []byte) (*Permissions, error) {
 			if conn.User() == "testuser" && string(pass) == clientPassword {
 				return nil, nil
 			}
 			return nil, errors.New("password auth failed")
 		},
 		PublicKeyCallback: certChecker.Authenticate,
-		KeyboardInteractiveCallback: func(conn ConnMetadata, challenge KeyboardInteractiveChallenge) (*Permissions, error) {
+		KeyboardInteractiveCallback: func(conn PluginConnMetadata, challenge KeyboardInteractiveChallenge) (*Permissions, error) {
 			ans, err := challenge("user",
 				"instruction",
 				[]string{"question1", "question2"},
@@ -96,7 +96,7 @@ func tryAuthBothSides(t *testing.T, config *ClientConfig, gssAPIWithMICConfig *G
 	}
 	serverConfig.AddHostKey(testSigners["rsa"])
 
-	serverConfig.AuthLogCallback = func(conn ConnMetadata, method string, err error) {
+	serverConfig.AuthLogCallback = func(conn PluginConnMetadata, method string, err error) {
 		serverAuthErrors = append(serverAuthErrors, err)
 	}
 
@@ -466,7 +466,7 @@ func TestClientLoginCert(t *testing.T) {
 
 func testPermissionsPassing(withPermissions bool, t *testing.T) {
 	serverConfig := &ServerConfig{
-		PublicKeyCallback: func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+		PublicKeyCallback: func(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 			if conn.User() == "nopermissions" {
 				return nil, nil
 			}
@@ -604,7 +604,7 @@ func TestClientAuthMaxAuthTries(t *testing.T) {
 
 	serverConfig := &ServerConfig{
 		MaxAuthTries: 2,
-		PasswordCallback: func(conn ConnMetadata, pass []byte) (*Permissions, error) {
+		PasswordCallback: func(conn PluginConnMetadata, pass []byte) (*Permissions, error) {
 			if conn.User() == "testuser" && string(pass) == "right" {
 				return nil, nil
 			}
@@ -725,7 +725,7 @@ func TestClientAuthErrorList(t *testing.T) {
 		HostKeyCallback: InsecureIgnoreHostKey(),
 	}
 	serverConfig := &ServerConfig{
-		PublicKeyCallback: func(_ ConnMetadata, _ PublicKey) (*Permissions, error) {
+		PublicKeyCallback: func(_ PluginConnMetadata, _ PublicKey) (*Permissions, error) {
 			return nil, publicKeyErr
 		},
 	}
@@ -794,7 +794,7 @@ func TestAuthMethodGSSAPIWithMIC(t *testing.T) {
 				HostKeyCallback: InsecureIgnoreHostKey(),
 			},
 			gssConfig: &GSSAPIWithMICConfig{
-				AllowLogin: func(conn ConnMetadata, srcName string) (*Permissions, error) {
+				AllowLogin: func(conn PluginConnMetadata, srcName string) (*Permissions, error) {
 					if srcName != conn.User()+"@DOMAIN" {
 						return nil, fmt.Errorf("srcName is %s, conn user is %s", srcName, conn.User())
 					}
@@ -835,7 +835,7 @@ func TestAuthMethodGSSAPIWithMIC(t *testing.T) {
 				HostKeyCallback: InsecureIgnoreHostKey(),
 			},
 			gssConfig: &GSSAPIWithMICConfig{
-				AllowLogin: func(conn ConnMetadata, srcName string) (*Permissions, error) {
+				AllowLogin: func(conn PluginConnMetadata, srcName string) (*Permissions, error) {
 					return nil, fmt.Errorf("user is not allowed to login")
 				},
 				Server: &FakeServer{
@@ -875,7 +875,7 @@ func TestAuthMethodGSSAPIWithMIC(t *testing.T) {
 				HostKeyCallback: InsecureIgnoreHostKey(),
 			},
 			gssConfig: &GSSAPIWithMICConfig{
-				AllowLogin: func(conn ConnMetadata, srcName string) (*Permissions, error) {
+				AllowLogin: func(conn PluginConnMetadata, srcName string) (*Permissions, error) {
 					if srcName != conn.User() {
 						return nil, fmt.Errorf("srcName is %s, conn user is %s", srcName, conn.User())
 					}
@@ -917,7 +917,7 @@ func TestAuthMethodGSSAPIWithMIC(t *testing.T) {
 				HostKeyCallback: InsecureIgnoreHostKey(),
 			},
 			gssConfig: &GSSAPIWithMICConfig{
-				AllowLogin: func(conn ConnMetadata, srcName string) (*Permissions, error) {
+				AllowLogin: func(conn PluginConnMetadata, srcName string) (*Permissions, error) {
 					if srcName != conn.User() {
 						return nil, fmt.Errorf("srcName is %s, conn user is %s", srcName, conn.User())
 					}
@@ -1307,13 +1307,13 @@ func TestKeyboardInteractiveAuthEarlyFail(t *testing.T) {
 	// Start testserver
 	serverConfig := &ServerConfig{
 		MaxAuthTries: maxAuthTries,
-		KeyboardInteractiveCallback: func(c ConnMetadata,
+		KeyboardInteractiveCallback: func(c PluginConnMetadata,
 			client KeyboardInteractiveChallenge) (*Permissions, error) {
 			// Fail keyboard-interactive authentication early before
 			// any prompt is sent to client.
 			return nil, errors.New("keyboard-interactive auth failed")
 		},
-		PasswordCallback: func(c ConnMetadata,
+		PasswordCallback: func(c PluginConnMetadata,
 			pass []byte) (*Permissions, error) {
 			if string(pass) == clientPassword {
 				return nil, nil

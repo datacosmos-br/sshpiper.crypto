@@ -315,7 +315,7 @@ type CertChecker struct {
 	// UserKeyFallback is called when CertChecker.Authenticate encounters a
 	// public key that is not a certificate. It must implement validation
 	// of user keys or else, if nil, all such keys are rejected.
-	UserKeyFallback func(conn ConnMetadata, key PublicKey) (*Permissions, error)
+	UserKeyFallback func(conn PluginConnMetadata, key PublicKey) (*Permissions, error)
 
 	// HostKeyFallback is called when CertChecker.CheckHostKey encounters a
 	// public key that is not a certificate. It must implement host key
@@ -357,7 +357,7 @@ func (c *CertChecker) CheckHostKey(addr string, remote net.Addr, key PublicKey) 
 
 // Authenticate checks a user certificate. Authenticate can be used as
 // a value for ServerConfig.PublicKeyCallback.
-func (c *CertChecker) Authenticate(conn ConnMetadata, pubKey PublicKey) (*Permissions, error) {
+func (c *CertChecker) Authenticate(conn PluginConnMetadata, pubKey PublicKey) (*Permissions, error) {
 	cert, ok := pubKey.(*Certificate)
 	if !ok {
 		if c.UserKeyFallback != nil {

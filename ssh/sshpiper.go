@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 )
 
 type Upstream struct {
@@ -45,28 +46,28 @@ type PiperConfig struct {
 	hostKeys []Signer
 
 	// CreateChallengeContext, if non-nil, that creates a challenge context for the connection metadata.
-	CreateChallengeContext func(conn ConnMetadata) (ChallengeContext, error)
+	CreateChallengeContext func(conn PluginConnMetadata) (ChallengeContext, error)
 
 	// NextAuthMethods, if non-nil, that returns the next authentication methods to be used.
-	NextAuthMethods func(conn ConnMetadata, challengeCtx ChallengeContext) ([]string, error)
+	NextAuthMethods func(conn PluginConnMetadata, challengeCtx ChallengeContext) ([]string, error)
 
 	// NoClientAuthCallback, if non-nil, that is called when the downstream requests a none auth.
-	NoClientAuthCallback func(conn ConnMetadata, challengeCtx ChallengeContext) (*Upstream, error)
+	NoClientAuthCallback func(conn PluginConnMetadata, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// PasswordCallback, if non-nil, that is called when the downstream requests a password auth.
 	// It returns the upstream connection and an error.
-	PasswordCallback func(conn ConnMetadata, password []byte, challengeCtx ChallengeContext) (*Upstream, error)
+	PasswordCallback func(conn PluginConnMetadata, password []byte, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// PublicKeyCallback, if non-nil, that is called when the downstream requests a publickey auth.
 	// It returns the upstream connection and an error.
-	PublicKeyCallback func(conn ConnMetadata, key PublicKey, challengeCtx ChallengeContext) (*Upstream, error)
+	PublicKeyCallback func(conn PluginConnMetadata, key PublicKey, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// KeyboardInteractiveCallback, if non-nil, that is called when the downstream requests a keyboard interactive auth.
 	// It returns the upstream connection and an error.
-	KeyboardInteractiveCallback func(conn ConnMetadata, client KeyboardInteractiveChallenge, challengeCtx ChallengeContext) (*Upstream, error)
+	KeyboardInteractiveCallback func(conn PluginConnMetadata, client KeyboardInteractiveChallenge, challengeCtx ChallengeContext) (*Upstream, error)
 
 	// UpstreamAuthFailureCallback, if non-nil, that is called when the upstream authentication fails.
-	UpstreamAuthFailureCallback func(conn ConnMetadata, method string, err error, challengeCtx ChallengeContext)
+	UpstreamAuthFailureCallback func(conn PluginConnMetadata, method string, err error, challengeCtx ChallengeContext)
 
 	// ServerVersion is the version identification string to announce in the public handshake.
 	// If empty, a reasonable default is used.
@@ -75,7 +76,7 @@ type PiperConfig struct {
 
 	// BannerCallback, if non-nil, that is called after key exchange completed but before authentication.
 	// It returns the banner string to be sent to the client.
-	BannerCallback func(conn ConnMetadata, challengeCtx ChallengeContext) string
+	BannerCallback func(conn PluginConnMetadata, challengeCtx ChallengeContext) string
 }
 
 // AddHostKey adds a private key as a SSHPiper host key. If an existing host
@@ -90,6 +91,15 @@ func (s *PiperConfig) AddHostKey(key Signer) {
 	}
 
 	s.hostKeys = append(s.hostKeys, key)
+}
+
+// ClearHostKeys removes all host keys from the PiperConfig.
+func (s *PiperConfig) ClearHostKeys() {
+	s.hostKeys = nil
+}
+
+func (s *PiperConfig) GetHostKeys() []Signer {
+	return s.hostKeys
 }
 
 type upstream struct{ *connection }
@@ -152,13 +162,13 @@ func (p *PiperConn) Close() {
 	p.downstream.transport.Close()
 }
 
-// UpstreamConnMeta returns the ConnMetadata of the piper and upstream
-func (p *PiperConn) UpstreamConnMeta() ConnMetadata {
+// UpstreamConnMeta returns the PluginConnMetadata of the piper and upstream
+func (p *PiperConn) UpstreamConnMeta() PluginConnMetadata {
 	return p.upstream
 }
 
-// DownstreamConnMeta returns the ConnMetadata of the piper and downstream
-func (p *PiperConn) DownstreamConnMeta() ConnMetadata {
+// DownstreamConnMeta returns the PluginConnMetadata of the piper and downstream
+func (p *PiperConn) DownstreamConnMeta() PluginConnMetadata {
 	return p.downstream
 }
 
@@ -182,7 +192,7 @@ func (p *PiperConn) mapToUpstreamViaDownstreamAuth() error {
 	return nil
 }
 
-func (p *PiperConn) authUpstream(downstream ConnMetadata, method string, upstream *Upstream) error {
+func (p *PiperConn) authUpstream(downstream PluginConnMetadata, method string, upstream *Upstream) error {
 	if upstream == nil {
 		return p.updateAuthMethods(fmt.Errorf("empty upstream"))
 	}
@@ -226,7 +236,7 @@ func (p *PiperConn) authUpstream(downstream ConnMetadata, method string, upstrea
 	return nil
 }
 
-func (p *PiperConn) noClientAuthCallback(conn ConnMetadata) (*Permissions, error) {
+func (p *PiperConn) noClientAuthCallback(conn PluginConnMetadata) (*Permissions, error) {
 	u, err := p.config.NoClientAuthCallback(conn, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -236,7 +246,7 @@ func (p *PiperConn) noClientAuthCallback(conn ConnMetadata) (*Permissions, error
 	return nil, p.authUpstream(conn, "none", u)
 }
 
-func (p *PiperConn) passwordCallback(conn ConnMetadata, password []byte) (*Permissions, error) {
+func (p *PiperConn) passwordCallback(conn PluginConnMetadata, password []byte) (*Permissions, error) {
 	u, err := p.config.PasswordCallback(conn, password, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -246,7 +256,7 @@ func (p *PiperConn) passwordCallback(conn ConnMetadata, password []byte) (*Permi
 	return nil, p.authUpstream(conn, "password", u)
 }
 
-func (p *PiperConn) publicKeyCallback(conn ConnMetadata, key PublicKey) (*Permissions, error) {
+func (p *PiperConn) publicKeyCallback(conn PluginConnMetadata, key PublicKey) (*Permissions, error) {
 	u, err := p.config.PublicKeyCallback(conn, key, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -256,7 +266,7 @@ func (p *PiperConn) publicKeyCallback(conn ConnMetadata, key PublicKey) (*Permis
 	return nil, p.authUpstream(conn, "publickey", u)
 }
 
-func (p *PiperConn) keyboardInteractiveCallback(conn ConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error) {
+func (p *PiperConn) keyboardInteractiveCallback(conn PluginConnMetadata, client KeyboardInteractiveChallenge) (*Permissions, error) {
 	u, err := p.config.KeyboardInteractiveCallback(conn, client, p.challengeCtx)
 	if err != nil {
 		p.authFailures++
@@ -266,7 +276,7 @@ func (p *PiperConn) keyboardInteractiveCallback(conn ConnMetadata, client Keyboa
 	return nil, p.authUpstream(conn, "keyboard-interactive", u)
 }
 
-func (p *PiperConn) bannerCallback(conn ConnMetadata) string {
+func (p *PiperConn) bannerCallback(conn PluginConnMetadata) string {
 	return p.config.BannerCallback(conn, p.challengeCtx)
 }
 
@@ -329,6 +339,15 @@ func (p *PiperConn) updateAuthMethods(emptyerr error) error {
 // It handshake with downstream ssh client and upstream ssh server provicde by FindUpstream.
 // If either handshake is unsuccessful, the whole piped connection will be closed.
 func NewSSHPiperConn(conn net.Conn, config *PiperConfig) (*PiperConn, error) {
+	if len(config.hostKeys) == 0 {
+		fmt.Fprintf(os.Stderr, "DEBUG: No host keys present in PiperConfig!\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "DEBUG: Host keys present: %d\n", len(config.hostKeys))
+		for i, k := range config.hostKeys {
+			fmt.Fprintf(os.Stderr, "DEBUG: Host key %d type: %s\n", i, k.PublicKey().Type())
+		}
+	}
+
 	d, err := newDownstream(conn, &ServerConfig{
 		Config:                  config.Config,
 		hostKeys:                config.hostKeys,

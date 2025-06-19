@@ -844,7 +844,7 @@ func TestServerClientAuthCallback(t *testing.T) {
 
 	serverConf := &ServerConfig{
 		NoClientAuth: true,
-		NoClientAuthCallback: func(conn ConnMetadata) (*Permissions, error) {
+		NoClientAuthCallback: func(conn PluginConnMetadata) (*Permissions, error) {
 			userCh <- conn.User()
 			return nil, nil
 		},
