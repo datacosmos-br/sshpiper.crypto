@@ -20,6 +20,7 @@ func ExampleNewClient() {
 	if err != nil {
 		log.Fatalf("Failed to open SSH_AUTH_SOCK: %v", err)
 	}
+	defer conn.Close()
 
 	agentClient := agent.NewClient(conn)
 	config := &ssh.ClientConfig{
